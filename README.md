@@ -12,6 +12,16 @@ Coaching tools and training tools tend to be two separate products. What is buil
 
 The second constraint is the network. Gyms sit in basements, and an app that stalls on a spinner between two sets is unusable at exactly the moment it is needed. So the training path, and only the training path, runs off a real database on the phone: WatermelonDB in JSI mode with its own schema, its own migrations and the history queries, through a custom Expo prebuild plugin. Nine screens out of fifty-seven touch it. The rest of the app is online, deliberately, and the reasoning is below.
 
+## Screens
+
+![The coach program builder](https://www.alexandresarrazin.fr/images/projects/huge-workout/builder-week-grid.png)
+
+*The coach side: an eight week periodisation, the week laid out day by day, the exercise library on the left and the progression rules at the bottom.*
+
+![A session in progress on the phone](https://www.alexandresarrazin.fr/images/projects/huge-workout/athlete-active.png)
+
+![The rest timer](https://www.alexandresarrazin.fr/images/projects/huge-workout/01-athlete-rest.png)
+
 ## Status
 
 Live since August 2026 on three public domains: web, API and object storage. The stack sits behind a shared Traefik and is driven through Portainer. A push on the default branch runs the full verification suite, builds two images tagged by commit hash, pushes the compose file to the Portainer API and waits for the health endpoint to return the expected version. The server compiles nothing.
