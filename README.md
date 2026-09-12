@@ -10,7 +10,7 @@ In production. The source is private; this page documents the architecture and t
 
 Coaching tools and training tools tend to be two separate products. What is built around the coach relationship is weak once you are on the gym floor, and what is built for logging sets leaves the coach outside. HugeWorkout targets both at once.
 
-The second constraint is the network. Gyms sit in basements, and an app that stalls on a spinner between two sets is unusable at exactly the moment it is needed. So the phone carries its own database rather than a cache over an API: WatermelonDB in JSI mode holds the local schema, its own migrations and the history queries, through a custom Expo prebuild plugin.
+The second constraint is the network. Gyms sit in basements, and an app that stalls on a spinner between two sets is unusable at exactly the moment it is needed. So the training path, and only the training path, runs off a real database on the phone: WatermelonDB in JSI mode with its own schema, its own migrations and the history queries, through a custom Expo prebuild plugin. Nine screens out of fifty-seven touch it. The rest of the app is online, deliberately, and the reasoning is below.
 
 ## Status
 
@@ -67,6 +67,22 @@ So `packages/core` is framework-free TypeScript declaring ports, and the Prisma 
 
 The ratchet was closed at the moment none of the three boundaries were being violated, which is the moment it cost nothing to close. Holding the boundary by convention and review had been tried for months, and the argument against it is not that it failed, it is that it could not say *when* it failed.
 
+### Offline is a scope, not a mode
+
+There is no synchronisation engine. `synchronize()` from WatermelonDB is called nowhere, and no server route speaks the sync protocol. What exists instead is two hand-written one-way mechanisms over a subset of the data.
+
+**Sessions go up.** A finished session with an empty `pushed_at` is waiting in the queue; that column *is* the queue, there is no second table. The client sends each session whole to one endpoint, in sequence, and stops at the first failure. The server answers with its own id, which the client stores. Nothing comes back down into the local tables.
+
+**The program comes down.** The server sends the full snapshot and the client diffs it locally against the six program tables in a single batch. Rows the snapshot keeps are updated, rows it drops are destroyed leaf-first so nothing is orphaned. No delta is requested from the server.
+
+**The invariant that makes this work: every local table has exactly one writer.** The program is server-owned and the athlete never writes to it, so the local copy is a read cache that gets overwritten without condition. Sessions are client-owned and no code path ever pulls a session down. Routines sit in a read cache that only answers when the network has refused, and a successful read replaces it.
+
+That is why there is no conflict resolution anywhere in this codebase. Not a merge policy, a structural property. Writing a generic bidirectional engine would have meant inventing conflicts in order to then resolve them.
+
+Idempotency is the one place the two sides do meet, and it is handled at the seam. Each session carries a client-generated id, the server looks it up before inserting, and a replay returns the stored session without re-detecting personal records. The uniqueness key is the pair of athlete and client id rather than the client id alone, because two phones can draw the same local id.
+
+A real bidirectional engine did exist as a spike, and it was removed in August 2026 for a security defect rather than a change of heart: the pull returned the whole table, and the push accepted a row id supplied by the client, so any authenticated caller could overwrite any row. A test was written at the moment of the removal so the endpoint cannot come back by accident. One Prisma model from that spike is still declared, with a comment saying why: dropping it would make Prisma generate a destructive migration against a production database.
+
 ### The server names the case, the client writes the sentence
 
 Two clients, two i18n libraries, two languages to keep complete, and a server that was composing inflected French sentences. Take "3 sessions completed over 28 days": the plural and the word order are French rules, and no client can translate that sentence, it can only copy it.
@@ -99,6 +115,8 @@ Solid: the domain layer. 241 source files, 195 test suites, a coverage floor enf
 
 The CI gates: formatting, types, lint with zero warnings tolerated, the full Jest suite, dead code detection, the coverage floor, two Playwright passes, and incremental mutation testing. A repository that agrees to fail on dead code carries little silent debt.
 
+The offline path is tested where it lives, at service level: 17 cases on the session queue covering the mark after acceptance, the stop at the first failure and two concurrent runs serialised, and 11 integration cases for the program replacement against a real local database, including one named after the failure it prevents, "does not destroy the offline program when the creation fails".
+
 The repository also tests its own rules, not just behaviour: that a declared guard is actually attached, that a route with no caller is registered with a written reason, that no displayed text is hard-coded, that no key is missing from a language, that no `new Date()` sits in domain code. Several of those guards were born from a real defect, which is readable in their comments.
 
 Not solid, and known:
@@ -106,6 +124,11 @@ Not solid, and known:
 - **The shared HTTP client is the knot of the project.** 2907 lines, about 197 methods, twelve domains in one class. It is the most connected node in the dependency graph at 115 edges, against 40 for the second. Any change to it touches web and mobile at once. The split is written up and costed, and not done.
 - **The social Prisma repository is very large**, 6125 lines, more than twice the next file. It is filed as "watch if the feature keeps growing" rather than "split now", which is a decision rather than an oversight.
 - **The mobile local database is not encrypted.** WatermelonDB in JSI mode opens a plain SQLite file and exposes no encryption option. This is worth stating because the project documentation claimed the opposite for months: it named SQLCipher, and it was wrong. The line was corrected, with an instruction not to write code that assumes the file is protected, and the real options are costed in a separate note. Still open.
+- **The queue never fires on its own.** No network state listener, no timer, no background task. A session recorded with no signal waits until the athlete finishes another one or returns to the home screen. Connectivity can come back for hours with nothing leaving the phone.
+- **Only sessions go up.** Routines, posts, comments, reactions, chat and check-ins all require the network at write time, with no queue and no replay. A second queue was considered and turned down as a second write path to maintain; the gap was closed for reading instead.
+- **Three edges are known and open.** A discarded session never leaves the phone and is never purged, the local database only grows, and switching accounts wipes it including sessions still waiting.
+- **The social feed does nothing offline.** No cache of any kind, so a post read five minutes earlier is gone.
+- **No end-to-end offline test.** Nothing in the Playwright suites cuts the network; offline is verified at service level and never as a journey.
 - **The coverage floor only covers the domain layer.** Web, mobile and the API modules have many tests and no threshold protecting them from a regression.
 - **No iOS.** No build, no submission config, no Apple account.
 
