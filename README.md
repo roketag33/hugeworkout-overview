@@ -6,6 +6,12 @@ The coach builds a training program structured in weeks, days and exercise block
 
 In production. The source is private; this page documents the architecture and the decisions behind it.
 
+## Why it exists
+
+Coaching tools and training tools tend to be two separate products. What is built around the coach relationship is weak once you are on the gym floor, and what is built for logging sets leaves the coach outside. HugeWorkout targets both at once.
+
+The second constraint is the network. Gyms sit in basements, and an app that stalls on a spinner between two sets is unusable at exactly the moment it is needed. So the phone carries its own database rather than a cache over an API: WatermelonDB in JSI mode holds the local schema, its own migrations and the history queries, through a custom Expo prebuild plugin.
+
 ## Status
 
 Live since August 2026 on three public domains: web, API and object storage. The stack sits behind a shared Traefik and is driven through Portainer. A push on the default branch runs the full verification suite, builds two images tagged by commit hash, pushes the compose file to the Portainer API and waits for the health endpoint to return the expected version. The server compiles nothing.
